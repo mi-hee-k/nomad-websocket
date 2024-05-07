@@ -17,15 +17,34 @@ const handleListen = () => console.log('Listening on http://localhost:3000');
 const server = http.createServer(app);
 const io = SocketIo(server);
 
+const publicRooms = () => {
+  const sids = io.sockets.adapter.sids;
+  const rooms = io.sockets.adapter.rooms;
+  const publicRooms = [];
+  rooms.forEach((_, key) => {
+    if (sids.get(key) === undefined) {
+      publicRooms.push(key);
+    }
+  });
+  return publicRooms;
+};
+
+const countRoom = (roomName) => {
+  return io.sockets.adapter.rooms.get(roomName)?.size;
+};
+
 io.on('connection', (socket) => {
-  socket['nickname'] = 'Anon';
+  io.sockets.emit('room_change', publicRooms());
   socket.onAny((e) => {
+    console.log(io.sockets.adapter);
     console.log(`Socket Event : ${e}`);
   });
-  socket.on('enter_room', (roomName, done) => {
+  socket.on('enter_room', (nickname, roomName, done) => {
     socket.join(roomName);
     done();
-    socket.to(roomName).emit('welcome', socket.nickname);
+    socket['nickname'] = nickname;
+    socket.to(roomName).emit('welcome', socket.nickname, countRoom(roomName));
+    io.sockets.emit('room_change', publicRooms());
   });
   socket.on('new_message', (msg, room, done) => {
     socket.to(room).emit('new_message', `${socket.nickname} : ${msg}`);
@@ -33,38 +52,13 @@ io.on('connection', (socket) => {
   });
   socket.on('nickname', (nickname) => (socket['nickname'] = nickname));
   socket.on('disconnecting', () => {
-    socket.rooms.forEach((room) =>
-      socket.to(room).emit('bye', socket.nickname)
+    socket.rooms.forEach((roomName) =>
+      socket.to(roomName).emit('bye', socket.nickname, countRoom(roomName) - 1)
     );
   });
+  socket.on('disconnect', () => {
+    io.sockets.emit('room_change', publicRooms());
+  });
 });
-
-// const wss = new WebSocket.Server({ server });
-
-// const sockets = [];
-
-// wss.on('connection', (socket) => {
-//   sockets.push(socket);
-//   socket['nickname'] = 'Anon';
-//   console.log('Connected to Browser!');
-//   socket.on('close', () => {
-//     console.log('Disconnected from Browser! ❌');
-//   });
-//   socket.on('message', (msg) => {
-//     const message = JSON.parse(msg.toString());
-//     switch (message.type) {
-//       case 'new_message':
-//         sockets.forEach((aSocket) =>
-//           aSocket.send(`${socket.nickname}: ${message.payload}`)
-//         );
-//         break;
-//       case 'nickname':
-//         socket['nickname'] = message.payload;
-//         break;
-//       default:
-//         break;
-//     }
-//   });
-// });
 
 server.listen(3000, handleListen);
